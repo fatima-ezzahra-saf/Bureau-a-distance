@@ -1,21 +1,51 @@
-import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
 import javax.imageio.ImageIO;
+import javax.swing.ImageIcon;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
 
 public class Serveur {
 
-    public void receiveScreenshot(int port) {
-        try {
-            DatagramSocket socket = new DatagramSocket(port);
+    private DatagramSocket socket;
+    private JFrame frame;
+    private JLabel label;
 
-            // Créer un tampon pour recevoir les données
+    public Serveur(int port) throws IOException {
+        socket = new DatagramSocket(port);
+        initializeFrame();
+    }
+
+    private void initializeFrame() {
+        frame = new JFrame("Capture d'écran");
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        label = new JLabel();
+        frame.getContentPane().add(label);
+        frame.pack();
+        frame.setVisible(true);
+
+        label.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int x = e.getX();
+                int y = e.getY();
+                sendMouseEvent("MOUSE_CLICKED", x, y);
+            }
+        });
+    }
+
+    public void receiveScreenshot() {
+        try {
             byte[] buffer = new byte[1024];
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 
-            // Recevoir les données par paquets
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             while (true) {
                 socket.receive(packet);
@@ -25,33 +55,48 @@ public class Serveur {
                 }
             }
 
-            // Convertir les données en objet image
             byte[] imageData = byteArrayOutputStream.toByteArray();
             ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(imageData);
             BufferedImage screenshot = ImageIO.read(byteArrayInputStream);
 
-            // Sauvegarder la capture d'écran sur le serveur
-            ImageIO.write(screenshot, "png", new File("C:\\Users\\AdMin\\Downloads\\screenshot.png"));
+            updateScreenshot(screenshot); // Mettre à jour l'image
 
-            System.out.println("Capture d'écran sauvegardée avec succès.");
+            System.out.println("Capture d'écran reçue.");
 
-            socket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
-    public void receiveMousePosition(int port) throws IOException {
-        DatagramSocket socket = new DatagramSocket(9876); // Écoute sur le port 9876
 
-        byte[] receiveData = new byte[1024];
+    private void updateScreenshot(BufferedImage screenshot) {
+        label.setIcon(new ImageIcon(screenshot));
+        frame.pack();
+    }
 
-        while (true) {
-            DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-            socket.receive(receivePacket);
-            String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
-
-            System.out.println("Position reçue : " + message);
+    private void sendMouseEvent(String eventType, int x, int y) {
+        try {
+            InetAddress clientAddress = InetAddress.getByName("localhost");
+            int clientPort = 9000;
+            String event = eventType + "," + x + "," + y;
+            byte[] buffer = event.getBytes();
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, clientAddress, clientPort);
+            socket.send(packet);
+            System.out.println("Événement envoyé : " + event);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
+    public void startReceivingScreenshots() {
+        new Thread(() -> {
+            while (true) {
+                receiveScreenshot();
+                try {
+                    Thread.sleep(50); // Attendre une seconde avant de recevoir la prochaine capture d'écran
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
 }

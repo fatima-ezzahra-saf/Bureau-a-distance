@@ -1,14 +1,10 @@
 import javax.imageio.ImageIO;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.InputEvent;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectOutputStream;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
+import java.net.*;
 import java.util.Arrays;
 
 public class Client {
@@ -29,7 +25,6 @@ public class Client {
 
     public void sendScreenshot() {
         try {
-            // Capture d'écran et envoi
             Robot robot = new Robot();
             Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
             BufferedImage screenshot = robot.createScreenCapture(screenRect);
@@ -53,24 +48,69 @@ public class Client {
         }
     }
 
-    public void startMouseListening() throws IOException {
-        DatagramSocket socket = new DatagramSocket();
-        InetAddress serverAddress = InetAddress.getByName("localhost"); // Remplacer par l'adresse IP du serveur
+    public void listenForEvents() {
+        try {
+            DatagramSocket eventSocket = new DatagramSocket(9000); // Port pour écouter les événements
+            byte[] buffer = new byte[1024];
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 
-        while (true) {
-            Point mousePoint = MouseInfo.getPointerInfo().getLocation();
-            String message = mousePoint.getX() + "," + mousePoint.getY();
-            byte[] sendData = message.getBytes();
-
-            DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, serverAddress, 9876);
-            socket.send(sendPacket);
-            System.out.println("Position envoyée : " + message);
-
-            try {
-                Thread.sleep(1000); // Envoi toutes les secondes
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+            while (true) {
+                eventSocket.receive(packet);
+                String event = new String(packet.getData(), 0, packet.getLength());
+                processEvent(event);
             }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
+    }
+
+    private void processEvent(String event) {
+        try {
+            String[] parts = event.split(",");
+            String eventType = parts[0];
+            int x = Integer.parseInt(parts[1]);
+            int y = Integer.parseInt(parts[2]);
+
+            Robot robot = new Robot();
+
+            switch (eventType) {
+                case "MOUSE_CLICKED":
+                    robot.mouseMove(x, y);
+                    robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+                    robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+                    System.out.println("Clic de souris appliqué aux coordonnées : (" + x + ", " + y + ")");
+                    break;
+                // Ajoutez d'autres événements et leurs actions ici
+                default:
+                    System.out.println("Événement non reconnu : " + event);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void startScreenshotSending() {
+        new Thread(() -> {
+            while (true) {
+                sendScreenshot();
+                try {
+                    Thread.sleep(1000); // Prendre une capture d'écran toutes les secondes
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
+
+    public static void main(String[] args) throws IOException {
+        Client client = new Client("localhost", 8000);
+
+        // Démarrer l'envoi continu des captures d'écran
+        client.startScreenshotSending();
+
+        // Écouter les événements envoyés par le serveur
+        new Thread(client::listenForEvents).start();
+
+        System.out.println("Client en écoute des événements");
     }
 }
